@@ -25,9 +25,13 @@
 
 package jdk.internal.math;
 
+import jdk.internal.vm.annotation.ForceInline;
 import jdk.internal.vm.annotation.Stable;
 
 import java.util.Arrays;
+
+import static jdk.internal.math.FloatingDecimal.FloatFmt.BINARY_32;
+import static jdk.internal.math.FloatingDecimal.FloatFmt.BINARY_64;
 
 /**
  * A class for converting between ASCII and decimal representations of a single
@@ -107,7 +111,7 @@ public class FloatingDecimal{
      * represent a properly formatted double precision value.
      */
     public static double parseDouble(String s) throws NumberFormatException {
-        return readJavaFormatString(s, BINARY_64_IX).doubleValue();
+        return readJavaFormatString(s, FloatFmt.BINARY_64).doubleValue();
     }
 
     /**
@@ -119,7 +123,7 @@ public class FloatingDecimal{
      * represent a properly formatted single precision value.
      */
     public static float parseFloat(String s) throws NumberFormatException {
-        return readJavaFormatString(s, BINARY_32_IX).floatValue();
+        return readJavaFormatString(s, BINARY_32).floatValue();
     }
 
     /**
@@ -1825,7 +1829,7 @@ public class FloatingDecimal{
     }
 
     /* ix is one of the BINARY_<S>_IX constants, where <S> = 16, 32, 64 */
-    static ASCIIToBinaryConverter readJavaFormatString(String in, int ix) {
+    static ASCIIToBinaryConverter readJavaFormatString(String in, FloatFmt ix) {
         /*
          * The scanning proper does not allocate any object,
          * nor does it perform any costly computation.
@@ -2040,7 +2044,7 @@ public class FloatingDecimal{
             int j = 0;
             i = lz;
             long c = 0;
-            int le = Math.min(n, HEX_COUNT[ix]);
+            int le = Math.min(n, ix.hexCount);
             while (j < le) {
                 if ((ch = in.charAt(i++)) != '.') {
                     ++j;
@@ -2058,20 +2062,20 @@ public class FloatingDecimal{
              * When ep + bl < Q_MIN then x certainly rounds to zero.
              * When ep + bl - 1 > E_MAX then x surely rounds to infinity.
              */
-            if (ep < Q_MIN[ix] - bl) {
+            if (ep < ix.qMin - bl) {
                 return buildZero(ix, ssign);
             }
-            if (ep > E_MAX[ix] - bl + 1) {
+            if (ep > ix.eMax - bl + 1) {
                 return buildInfinity(ix, ssign);
             }
             int q = (int) ep;  // narrowing conversion is safe
             int shr;  // (sh)ift to (r)ight iff shr > 0
-            if (q > E_MIN[ix] - bl) {
-                shr = bl - P[ix];
+            if (q > ix.eMin - bl) {
+                shr = bl - ix.p();
                 q += shr;
             } else {
-                shr = Q_MIN[ix] - q;
-                q = Q_MIN[ix];
+                shr = ix.qMin - q;
+                q =ix.qMin;
             }
             if (shr > 0) {
                 long thr = 1L << shr;
@@ -2079,7 +2083,7 @@ public class FloatingDecimal{
                 c >>>= shr;
                 if (tail > thr || tail == thr && (c & 0b1) != 0) {
                     c += 1;
-                    if (c >= 1L << P[ix]) {  // but in fact it can't be >
+                    if (c >= 1L << ix.p) {  // but in fact it can't be >
                         c >>>= 1;
                         q += 1;
                     }
@@ -2089,7 +2093,7 @@ public class FloatingDecimal{
             }
 
             /* For now throw on BINARY_16_IX, until Float16 is integrated in java.base. */
-            return switch (ix) {
+            return switch (ix.ix) {
                 case BINARY_32_IX ->
                     new PreparedASCIIToBinaryBuffer(Double.NaN, buildFloat(ssign, q, c));
                 case BINARY_64_IX ->
@@ -2110,11 +2114,11 @@ public class FloatingDecimal{
          * We return immediately in these cases.
          * Otherwise, e' fits in an int named e.
          */
-        int e = Math.clamp(ep + n, EP_MIN[ix], EP_MAX[ix]);
-        if (e == EP_MIN[ix]) {  // e' <= E_MIN
+        int e = Math.clamp(ep + n, ix.epMin, ix.epMax);
+        if (e == ix.epMin) {  // e' <= E_MIN
             return ssign != '-' ? A2BC_POSITIVE_ZERO : A2BC_NEGATIVE_ZERO;
         }
-        if (e == EP_MAX[ix]) {  // e' >= E_MAX
+        if (e == ix.epMax) {  // e' >= E_MAX
             return ssign != '-' ? A2BC_POSITIVE_INFINITY : A2BC_NEGATIVE_INFINITY;
         }
 
@@ -2179,7 +2183,7 @@ public class FloatingDecimal{
          * Again, since q is not known exactly, we proceed as in the previous
          * case, with ql as a safe replacement for q.
          */
-        int ql = Math.max(MathUtils.flog2pow10(e - 1) - (P[ix] - 1), Q_MIN[ix]);
+        int ql = Math.max(MathUtils.flog2pow10(e - 1) - (ix.p - 1), ix.qMin);
         int np = e + Math.max(2 - ql, 1);
         byte[] digits = new byte[Math.min(n, np)];
         if (n >= np) {
@@ -2191,9 +2195,9 @@ public class FloatingDecimal{
         return new ASCIIToBinaryBuffer(ssign == '-', e, digits, digits.length);
     }
 
-    private static PreparedASCIIToBinaryBuffer buildZero(int ix, int ssign) {
+    private static PreparedASCIIToBinaryBuffer buildZero(FloatFmt ix, int ssign) {
         /* For now throw on BINARY_16_IX, until Float16 is integrated in java.base. */
-        return switch (ix) {
+        return switch (ix.ix) {
             case BINARY_32_IX ->
                 new PreparedASCIIToBinaryBuffer(
                         Double.NaN,
@@ -2206,9 +2210,9 @@ public class FloatingDecimal{
         };
     }
 
-    private static PreparedASCIIToBinaryBuffer buildInfinity(int ix, int ssign) {
+    private static PreparedASCIIToBinaryBuffer buildInfinity(FloatFmt ix, int ssign) {
         /* For now throw on BINARY_16_IX, until Float16 is integrated in java.base. */
-        return switch (ix) {
+        return switch (ix.ix) {
             case BINARY_32_IX ->
                 new PreparedASCIIToBinaryBuffer(
                         Double.NaN,
@@ -2222,21 +2226,21 @@ public class FloatingDecimal{
     }
 
     private static double buildDouble(int ssign, int q, long c) {
-        long be = c < 1L << P[BINARY_64_IX] - 1
+        long be = c < 1L << BINARY_64.p - 1
                 ? 0
-                : q + ((DoubleConsts.EXP_BIAS - 1) + P[BINARY_64_IX]);
+                : q + ((DoubleConsts.EXP_BIAS - 1) + BINARY_64.p);
         long bits = (ssign != '-' ? 0L : 1L << Double.SIZE - 1)
-                | be << P[BINARY_64_IX] - 1
+                | be << BINARY_64.p - 1
                 | c & DoubleConsts.SIGNIF_BIT_MASK;
         return Double.longBitsToDouble(bits);
     }
 
     private static float buildFloat(int ssign, int q, long c) {
-        int be = c < 1L << P[BINARY_32_IX] - 1
+        int be = c < 1L << BINARY_32.p - 1
                 ? 0
-                : q + ((FloatConsts.EXP_BIAS - 1) + P[BINARY_32_IX]);
+                : q + ((FloatConsts.EXP_BIAS - 1) + BINARY_32.p);
         int bits = (ssign != '-' ? 0 : 1 << Float.SIZE - 1)
-                | be << P[BINARY_32_IX] - 1
+                | be << BINARY_32.p - 1
                 | (int) c & FloatConsts.SIGNIF_BIT_MASK;
         return Float.intBitsToFloat(bits);
     }
@@ -2348,85 +2352,62 @@ public class FloatingDecimal{
 //    private static final int BINARY_128_IX = 3;
 //    private static final int BINARY_256_IX = 4;
 
-    /* The precision of the format. */
-    @Stable
-    private static final int[] P = {
-            11, 24, 53, // 113, 237,
-    };
+    record FloatFmt(
+            int ix,
 
-    /*
-     * EP_MIN = max{e : 10^e <= MIN_VALUE/2}.
-     * Note that MIN_VALUE/2 is the 0 threshold.
-     * Less or equal values round to 0 when using roundTiesToEven.
-     * Equivalently, EP_MIN = floor(log10(2^(Q_MIN-1))).
-     */
-    @Stable
-    private static final int[] EP_MIN = {
-            -8, -46, -324, // -4_966, -78_985,
-    };
+            /* The precision of the format. */
+            int p,
 
-    /*
-     * EP_MAX = min{e : MAX_VALUE + ulp(MAX_VALUE)/2 <= 10^(e-1)}.
-     * Note that MAX_VALUE + ulp(MAX_VALUE)/2 is the infinity threshold.
-     * Greater or equal values round to infinity when using roundTiesToEven.
-     * Equivalently, EP_MAX = ceil(log10((2^P - 1/2) 2^Q_MAX)) + 1.
-     */
-    @Stable
-    private static final int[] EP_MAX = {
-            6, 40, 310, // 4_934, 78_915,
-    };
+            /*
+             * EP_MIN = max{e : 10^e <= MIN_VALUE/2}.
+             * Note that MIN_VALUE/2 is the 0 threshold.
+             * Less or equal values round to 0 when using roundTiesToEven.
+             * Equivalently, EP_MIN = floor(log10(2^(Q_MIN-1))).
+             */
+            int epMin,
 
-    /* Exponent width. */
-    @Stable
-    private static final int[] W = {
-            (1 << 4 + BINARY_16_IX) - P[BINARY_16_IX],
-            (1 << 4 + BINARY_32_IX) - P[BINARY_32_IX],
-            (1 << 4 + BINARY_64_IX) - P[BINARY_64_IX],
-//            (1 << 4 + BINARY_128_IX) - P[BINARY_128_IX],
-//            (1 << 4 + BINARY_256_IX) - P[BINARY_256_IX],
-    };
+            /*
+             * EP_MAX = min{e : MAX_VALUE + ulp(MAX_VALUE)/2 <= 10^(e-1)}.
+             * Note that MAX_VALUE + ulp(MAX_VALUE)/2 is the infinity threshold.
+             * Greater or equal values round to infinity when using roundTiesToEven.
+             * Equivalently, EP_MAX = ceil(log10((2^P - 1/2) 2^Q_MAX)) + 1.
+             */
+            int epMax,
 
-    /* Maximum exponent in the m 2^e representation. */
-    @Stable
-    private static final int[] E_MAX = {
-            (1 << W[BINARY_16_IX] - 1) - 1,
-            (1 << W[BINARY_32_IX] - 1) - 1,
-            (1 << W[BINARY_64_IX] - 1) - 1,
-//            (1 << W[BINARY_128_IX] - 1) - 1,
-//            (1 << W[BINARY_256_IX] - 1) - 1,
-    };
+            /* Exponent width. */
+            int w,
 
-    /* Minimum exponent in the m 2^e representation. */
-    @Stable
-    private static final int[] E_MIN = {
-            1 - E_MAX[BINARY_16_IX],
-            1 - E_MAX[BINARY_32_IX],
-            1 - E_MAX[BINARY_64_IX],
-//            1 - E_MAX[BINARY_128_IX],
-//            1 - E_MAX[BINARY_256_IX],
-    };
+            /* Minimum exponent in the m 2^e representation. */
+            int eMin,
 
-    /* Minimum exponent in the c 2^q representation. */
-    @Stable
-    private static final int[] Q_MIN = {
-            E_MIN[BINARY_16_IX] - (P[BINARY_16_IX] - 1),
-            E_MIN[BINARY_32_IX] - (P[BINARY_32_IX] - 1),
-            E_MIN[BINARY_64_IX] - (P[BINARY_64_IX] - 1),
-//            E_MIN[BINARY_128_IX] - (P[BINARY_128_IX] - 1),
-//            E_MIN[BINARY_256_IX] - (P[BINARY_256_IX] - 1),
-    };
+            /* Maximum exponent in the m 2^e representation. */
+            int eMax,
 
-    /*
-     * The most significant P +1 rounding bit +1 sticky bit = P + 2 bits in a
-     * hexadecimal string need up to HEX_COUNT = floor(P/4) + 2 hex digits.
-     */
-    @Stable
-    private static final int[] HEX_COUNT = {
-            P[BINARY_16_IX] / 4 + 2,
-            P[BINARY_32_IX] / 4 + 2,
-            P[BINARY_64_IX] / 4 + 2,
-//            P[BINARY_128_IX] / 4 + 2,
-//            P[BINARY_256_IX] / 4 + 2,
-    };
+            /* Minimum exponent in the c 2^q representation. */
+            int qMin,
+
+            /*
+             * The most significant P +1 rounding bit +1 sticky bit = P + 2 bits in a
+             * hexadecimal string need up to HEX_COUNT = floor(P/4) + 2 hex digits.
+             */
+            int hexCount) {
+
+        public static final FloatFmt BINARY_16 = build(0, 11, -8, 6);
+        public static final FloatFmt BINARY_32 = build(1, 24, -46, 40);
+        public static final FloatFmt BINARY_64 = build(2, 53, -324, 310);
+        public static final FloatFmt BINARY_128 = build(3, 113, -4_966, 4934);
+        public static final FloatFmt BINARY_256 = build(4, 237, -78_985, 78_915);
+
+        private static FloatFmt build(int ix, int p, int epMin, int epMax) {
+            int w = (1 << 4 + ix) - p;
+            int eMin = (-1 << w - 1) + 2;
+            int eMax = (1 << w - 1) - 1;
+            int qMin = eMin - p + 1;
+            int hexCount = p / 4 + 2;
+
+            return new FloatFmt(ix, p, epMin, epMax, w, eMin, eMax, qMin, hexCount);
+        }
+    }
+
 
 }
