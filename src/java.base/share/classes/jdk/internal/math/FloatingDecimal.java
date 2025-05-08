@@ -2070,7 +2070,7 @@ public class FloatingDecimal{
             int q = (int) ep;  // narrowing conversion is safe
             int shr;  // (sh)ift to (r)ight iff shr > 0
             if (q > ix.eMin - bl) {
-                shr = bl - ix.p();
+                shr = bl - ix.p;
                 q += shr;
             } else {
                 shr = ix.qMin - q;
